@@ -120,3 +120,41 @@ async def devir_nihai_malzemeci_onayi(
     await db_session.commit()
     await db_session.refresh(transaction)
     return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/dogrudan-zimmet-onayla",
+    response_model=TransactionResponse,
+)
+async def dogrudan_zimmet_onayla(
+    payload: DevirAliciOnayiCreate,
+    db_session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TransactionResponse:
+    transaction = await TransactionService.dogrudan_zimmet_onayla(
+        db_session=db_session,
+        transaction_id=payload.transaction_id,
+        alici_uye_id=current_user.id,
+    )
+    await db_session.commit()
+    await db_session.refresh(transaction)
+    return TransactionResponse.model_validate(transaction)
+
+
+@router.post(
+    "/dogrudan-zimmet-reddet",
+    response_model=TransactionResponse,
+)
+async def dogrudan_zimmet_reddet(
+    payload: DevirAliciOnayiCreate,
+    db_session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TransactionResponse:
+    transaction = await TransactionService.dogrudan_zimmet_reddet(
+        db_session=db_session,
+        transaction_id=payload.transaction_id,
+        alici_uye_id=current_user.id,
+    )
+    await db_session.commit()
+    await db_session.refresh(transaction)
+    return TransactionResponse.model_validate(transaction)

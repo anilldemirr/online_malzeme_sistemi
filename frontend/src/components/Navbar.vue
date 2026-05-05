@@ -129,7 +129,7 @@ function switchUser(id) {
                     <div class="flex-1 text-left">
                       <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                         {{ u.ad }}
-                        <span v-if="u.rol === 'yonetici'" class="text-[10px] uppercase tracking-wider font-bold bg-brand text-white px-1.5 py-0.5 rounded">Yön.</span>
+                        <span v-if="u.rol === 'manager'" class="text-[10px] uppercase tracking-wider font-bold bg-brand text-white px-1.5 py-0.5 rounded">Yön.</span>
                       </div>
                       <div class="text-xs text-slate-500 dark:text-slate-400">{{ u.id }}</div>
                     </div>

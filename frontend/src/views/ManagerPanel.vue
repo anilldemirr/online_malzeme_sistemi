@@ -13,42 +13,61 @@ import ActionModal from '../components/ActionModal.vue'
 const store = useInventoryStore()
 const router = useRouter()
 
-const tab = ref('requests')
+const tab = ref('assignments')
 const fulfillTx = ref(null)
 const selectedItemId = ref('')
 
 const tabs = computed(() => [
-  { id: 'requests',  label: 'Talepler',  icon: 'Inbox',   count: store.pendingRequests.length },
-  { id: 'transfers', label: 'Devirler',  icon: 'Switch',  count: store.pendingTransfers.length },
-  { id: 'staging',   label: 'Staging',   icon: 'Layers',  count: store.stagedItems.length },
-  { id: 'audit',     label: 'Denetim',   icon: 'History', count: null },
+  { id: 'assignments', label: 'Atamalar', icon: 'Zap', count: store.pendingAssignments.length },
+  { id: 'book-requests', label: 'Kitap Talepleri', icon: 'Inbox', count: store.pendingRequests.length },
+  { id: 'transfers', label: 'Devirler', icon: 'Switch', count: store.pendingTransfers.length },
+  { id: 'staging', label: 'Staging', icon: 'Layers', count: store.stagedItems.length },
+  { id: 'audit', label: 'Denetim', icon: 'History', count: null },
 ])
 
 function openFulfill(tx) { fulfillTx.value = tx; selectedItemId.value = '' }
-function doFulfill() {
-  store.fulfillRequest(fulfillTx.value.id, selectedItemId.value)
-  fulfillTx.value = null
+async function doFulfill() {
+  if (!fulfillTx.value || !selectedItemId.value) return
+  
+  // Check if this is a technical equipment assignment (tab context)
+  const isAssignment = tab.value === 'assignments'
+  
+  try {
+    if (isAssignment) {
+      // Technical equipment: Direct assignment to member
+      await store.assignEquipmentToMember(selectedItemId.value, fulfillTx.value.hedef_uye_id)
+    } else {
+      // Books: Traditional fulfill request flow
+      store.fulfillRequest(fulfillTx.value.id, selectedItemId.value)
+    }
+    
+    fulfillTx.value = null
+  } catch (error) {
+    console.error('Fulfillment failed:', error)
+    // Keep modal open on error so user can retry
+  }
 }
 </script>
 
 <template>
-  <!-- 403 guard -->
-  <main v-if="!store.isManager" class="max-w-3xl mx-auto px-4 md:px-8 py-16">
-    <Card class="p-8 text-center anim-fade">
-      <div class="w-16 h-16 rounded-2xl bg-rose-50 dark:bg-rose-500/15 text-rose-600 dark:text-rose-300 flex items-center justify-center mx-auto mb-4">
-        <AppIcon name="Shield" :size="28" />
-      </div>
-      <h1 class="text-2xl font-bold text-slate-900 dark:text-slate-50">Erişim Engellendi · 403</h1>
-      <p class="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-sm mx-auto">
-        Yönetici paneline yalnızca yönetici rolündeki kullanıcılar erişebilir. Test için sağ üstten kullanıcı değiştirin.
-      </p>
-      <div class="mt-6">
-        <Button variant="primary" icon="Home" @click="router.push({ name: 'dashboard' })">Genel Bakışa Dön</Button>
-      </div>
-    </Card>
-  </main>
+  <main :class="store.isManager ? 'max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8' : 'max-w-3xl mx-auto px-4 md:px-8 py-16'">
+    <!-- 403 guard -->
+    <template v-if="!store.isManager">
+      <Card class="p-8 text-center anim-fade">
+        <div class="w-16 h-16 rounded-2xl bg-rose-50 dark:bg-rose-500/15 text-rose-600 dark:text-rose-300 flex items-center justify-center mx-auto mb-4">
+          <AppIcon name="Shield" :size="28" />
+        </div>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-slate-50">Erişim Engellendi · 403</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-sm mx-auto">
+          Yönetici paneline yalnızca yönetici rolündeki kullanıcılar erişebilir. Test için sağ üstten kullanıcı değiştirin.
+        </p>
+        <div class="mt-6">
+          <Button variant="primary" icon="Home" @click="router.push({ name: 'dashboard' })">Genel Bakışa Dön</Button>
+        </div>
+      </Card>
+    </template>
 
-  <main v-else class="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8">
+    <template v-else>
     <header class="mb-6 anim-fade flex items-start justify-between gap-4 flex-wrap">
       <div>
         <div class="flex items-center gap-2 mb-1">
@@ -89,10 +108,47 @@ function doFulfill() {
       </div>
     </div>
 
-    <!-- Requests tab -->
-    <div v-if="tab === 'requests'" class="anim-fade">
+    <!-- Assignments tab (Technical Equipment) -->
+    <div v-if="tab === 'assignments'" class="anim-fade">
+      <Card v-if="store.pendingAssignments.length === 0" class="p-0">
+        <EmptyState icon="Zap" title="Teknik malzeme atama yok" body="Tüm atamalar tamamlanmış veya beklemede." />
+      </Card>
+      <div v-else class="flex flex-col gap-3">
+        <Card v-for="t in store.pendingAssignments" :key="t.id" class="p-4">
+          <div class="flex flex-col md:flex-row md:items-center gap-4">
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+              <div class="w-10 h-10 rounded-alpine bg-brand-soft dark:bg-brand/15 text-brand-dark dark:text-brand-light flex items-center justify-center shrink-0">
+                <AppIcon :name="store.getModel(t.requested_model_id)?.icon || 'Box'" :size="18" />
+              </div>
+              <div class="min-w-0">
+                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ store.getModel(t.requested_model_id)?.model_adi }}</div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400">→ {{ store.getUser(t.hedef_uye_id)?.ad }}</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 shrink-0">
+              <div class="text-right hidden sm:block">
+                <div class="text-[11px] text-slate-500 dark:text-slate-400">{{ formatRelative(t.tarih) }}</div>
+                <div :class="['text-[11px] font-semibold', store.availableItemsForModel(t.requested_model_id).length > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400']">
+                  {{ store.availableItemsForModel(t.requested_model_id).length }} depoda
+                </div>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                icon="Check"
+                :disabled="store.availableItemsForModel(t.requested_model_id).length === 0"
+                @click="openFulfill(t)"
+              >Ata</Button>
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
+
+    <!-- Book Requests tab -->
+    <div v-if="tab === 'book-requests'" class="anim-fade">
       <Card v-if="store.pendingRequests.length === 0" class="p-0">
-        <EmptyState icon="Inbox" title="Şu an onay bekleyen talep bulunmuyor" body="Yeni talepler buraya düştüğünde haberdar edileceksiniz." />
+        <EmptyState icon="Inbox" title="Kitap talebi yok" body="Tüm talepler işlendi." />
       </Card>
       <div v-else class="flex flex-col gap-3">
         <Card v-for="t in store.pendingRequests" :key="t.id" class="p-4">
@@ -106,29 +162,29 @@ function doFulfill() {
               <AppIcon name="ArrowRight" :size="14" class="text-slate-400 mx-1 hidden md:block" />
               <div class="hidden md:flex items-center gap-2.5 min-w-0">
                 <div class="w-10 h-10 rounded-alpine bg-brand-soft dark:bg-brand/15 text-brand-dark dark:text-brand-light flex items-center justify-center shrink-0">
-                  <AppIcon :name="store.getModel(t.model_id)?.icon || 'Box'" :size="18" />
+                  <AppIcon :name="store.getModel(t.requested_model_id)?.icon || 'Box'" :size="18" />
                 </div>
                 <div class="min-w-0">
-                  <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ store.getModel(t.model_id)?.model_adi }}</div>
-                  <div class="text-[11px] text-slate-500 dark:text-slate-400">{{ store.getModel(t.model_id)?.marka }} · {{ store.getModel(t.model_id)?.kategori }}</div>
+                  <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ store.getModel(t.requested_model_id)?.model_adi }}</div>
+                  <div class="text-[11px] text-slate-500 dark:text-slate-400">{{ store.getModel(t.requested_model_id)?.marka_yayin_evi }}</div>
                 </div>
               </div>
             </div>
             <!-- Mobile model -->
             <div class="md:hidden flex items-center gap-2.5">
               <div class="w-10 h-10 rounded-alpine bg-brand-soft dark:bg-brand/15 text-brand-dark dark:text-brand-light flex items-center justify-center shrink-0">
-                <AppIcon :name="store.getModel(t.model_id)?.icon || 'Box'" :size="18" />
+                <AppIcon :name="store.getModel(t.requested_model_id)?.icon || 'Box'" :size="18" />
               </div>
               <div>
-                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ store.getModel(t.model_id)?.model_adi }}</div>
-                <div class="text-[11px] text-slate-500 dark:text-slate-400">{{ store.getModel(t.model_id)?.marka }}</div>
+                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ store.getModel(t.requested_model_id)?.model_adi }}</div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400">{{ store.getModel(t.requested_model_id)?.marka_yayin_evi }}</div>
               </div>
             </div>
             <div class="flex items-center gap-3 shrink-0">
               <div class="text-right hidden sm:block">
-                <div class="text-[11px] text-slate-500 dark:text-slate-400">{{ formatRelative(t.created) }}</div>
-                <div :class="['text-[11px] font-semibold', store.availableItemsForModel(t.model_id).length > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400']">
-                  {{ store.availableItemsForModel(t.model_id).length }} depoda
+                <div class="text-[11px] text-slate-500 dark:text-slate-400">{{ formatRelative(t.tarih) }}</div>
+                <div :class="['text-[11px] font-semibold', store.availableItemsForModel(t.requested_model_id).length > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400']">
+                  {{ store.availableItemsForModel(t.requested_model_id).length }} depoda
                 </div>
               </div>
               <Button variant="outline" size="sm" @click="store.rejectRequest(t.id)">Reddet</Button>
@@ -136,15 +192,10 @@ function doFulfill() {
                 variant="primary"
                 size="sm"
                 icon="Check"
-                :disabled="t.talep_eden_id === store.currentUserId || store.availableItemsForModel(t.model_id).length === 0"
+                :disabled="t.talep_eden_id === store.currentUserId || store.availableItemsForModel(t.requested_model_id).length === 0"
                 @click="openFulfill(t)"
-              >Karşıla</Button>
+              >Onayla</Button>
             </div>
-          </div>
-          <!-- SoD warning -->
-          <div v-if="t.talep_eden_id === store.currentUserId" class="mt-3 flex items-start gap-2 text-xs p-2.5 rounded-md bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200/50 dark:border-rose-500/20">
-            <AppIcon name="AlertTriangle" :size="14" class="mt-0.5 shrink-0" />
-            <span><strong>Görev Ayrılığı (SoD):</strong> Kendi talebinizi onaylayamazsınız. Başka bir yöneticinin işlem yapması gerekiyor.</span>
           </div>
         </Card>
       </div>
@@ -173,8 +224,8 @@ function doFulfill() {
                 <span class="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{{ store.getUser(t.hedef_uye_id)?.ad?.split(' ')[0] }}</span>
               </div>
               <div class="flex flex-col items-center gap-0.5 px-1">
-                <AppIcon name="ArrowRight" :size="14" :class="t.b_onayli ? 'text-emerald-500' : 'text-slate-300 dark:text-slate-600'" />
-                <span :class="['text-[9px] font-bold uppercase', t.b_onayli ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400']">{{ t.b_onayli ? 'Onayladı' : 'Bekliyor' }}</span>
+                <AppIcon name="ArrowRight" :size="14" :class="t.islem_durumu === 'malzemeci_onayi_bekliyor' || t.islem_durumu === 'onaylandi' ? 'text-emerald-500' : 'text-slate-300 dark:text-slate-600'" />
+                <span :class="['text-[9px] font-bold uppercase', t.islem_durumu === 'malzemeci_onayi_bekliyor' || t.islem_durumu === 'onaylandi' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400']">{{ t.islem_durumu === 'malzemeci_onayi_bekliyor' || t.islem_durumu === 'onaylandi' ? 'Onayladı' : 'Bekliyor' }}</span>
               </div>
               <div class="flex flex-col items-center gap-1 shrink-0">
                 <div class="w-10 h-10 rounded-full bg-brand-soft dark:bg-brand/15 text-brand-dark dark:text-brand-light flex items-center justify-center">
@@ -186,10 +237,10 @@ function doFulfill() {
             <!-- Item details -->
             <div class="flex items-center gap-3 lg:w-64 lg:shrink-0">
               <div class="w-10 h-10 rounded-alpine bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
-                <AppIcon :name="store.getModel(t.model_id)?.icon || 'Box'" :size="18" />
+                <AppIcon :name="store.getModel(t.requested_model_id)?.icon || 'Box'" :size="18" />
               </div>
               <div class="min-w-0">
-                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ store.getModel(t.model_id)?.model_adi }}</div>
+                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ store.getModel(t.requested_model_id)?.model_adi }}</div>
                 <div class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">{{ store.getItem(t.assigned_item_id)?.demirbas_no }}</div>
               </div>
             </div>
@@ -199,7 +250,7 @@ function doFulfill() {
                 variant="primary"
                 size="sm"
                 icon="CheckCircle"
-                :disabled="(t.talep_eden_id === store.currentUserId || t.hedef_uye_id === store.currentUserId) || !t.b_onayli"
+                :disabled="(t.talep_eden_id === store.currentUserId || t.hedef_uye_id === store.currentUserId) || t.islem_durumu !== 'malzemeci_onayi_bekliyor'"
                 @click="store.finalizeTransfer(t.id)"
               >Devri Sonlandır</Button>
             </div>
@@ -213,7 +264,7 @@ function doFulfill() {
             <span><strong>Görev Ayrılığı (SoD):</strong> Bu devirin tarafısınız, başka bir yönetici tamamlamalı.</span>
           </div>
           <div
-            v-else-if="!t.b_onayli"
+            v-else-if="t.islem_durumu !== 'malzemeci_onayi_bekliyor'"
             class="mt-3 flex items-start gap-2 text-xs p-2.5 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200/50 dark:border-amber-500/20"
           >
             <AppIcon name="Clock" :size="14" class="mt-0.5 shrink-0" />
@@ -276,30 +327,30 @@ function doFulfill() {
     <!-- Fulfill modal -->
     <ActionModal
       :open="!!fulfillTx"
-      title="Talebi Karşıla"
-      subtitle="Bu talebe bir fiziksel demirbaş atayın"
+      :title="tab === 'assignments' ? 'Malzeme Ata' : 'Talebi Karşıla'"
+      :subtitle="tab === 'assignments' ? 'Bu üyeye teknik malzeme atayın' : 'Bu talebe bir fiziksel demirbaş atayın'"
       icon="CheckCircle"
       tone="brand"
       @close="fulfillTx = null"
     >
       <template v-if="fulfillTx">
         <div class="flex items-center gap-3 p-3 rounded-alpine bg-slate-50 dark:bg-slate-800/40 mb-4">
-          <Avatar :user="store.getUser(fulfillTx.talep_eden_id)" :size="36" />
+          <Avatar :user="store.getUser(tab === 'assignments' ? fulfillTx.hedef_uye_id : fulfillTx.talep_eden_id)" :size="36" />
           <AppIcon name="ArrowRight" :size="14" class="text-slate-400" />
           <div class="flex-1 min-w-0">
-            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ store.getModel(fulfillTx.model_id)?.model_adi }}</div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">{{ store.getUser(fulfillTx.talep_eden_id)?.ad }} için</div>
+            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ store.getModel(fulfillTx.requested_model_id)?.model_adi }}</div>
+            <div class="text-xs text-slate-500 dark:text-slate-400">{{ store.getUser(tab === 'assignments' ? fulfillTx.hedef_uye_id : fulfillTx.talep_eden_id)?.ad }} için</div>
           </div>
         </div>
         <label class="block text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-2">
-          Atanacak Demirbaş ({{ store.availableItemsForModel(fulfillTx.model_id).length }} kullanılabilir)
+          Atanacak Demirbaş ({{ store.availableItemsForModel(fulfillTx.requested_model_id).length }} kullanılabilir)
         </label>
-        <div v-if="store.availableItemsForModel(fulfillTx.model_id).length === 0" class="text-sm text-slate-500 dark:text-slate-400 p-3 rounded-md bg-rose-50/50 dark:bg-rose-500/10 border border-rose-200/50 dark:border-rose-500/20">
+        <div v-if="store.availableItemsForModel(fulfillTx.requested_model_id).length === 0" class="text-sm text-slate-500 dark:text-slate-400 p-3 rounded-md bg-rose-50/50 dark:bg-rose-500/10 border border-rose-200/50 dark:border-rose-500/20">
           Bu model için depoda kullanılabilir demirbaş yok.
         </div>
         <div v-else class="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
           <label
-            v-for="it in store.availableItemsForModel(fulfillTx.model_id)"
+            v-for="it in store.availableItemsForModel(fulfillTx.requested_model_id)"
             :key="it.id"
             :class="[
               'flex items-center gap-2 p-2.5 rounded-alpine border cursor-pointer transition',
@@ -320,5 +371,6 @@ function doFulfill() {
         <Button variant="primary" icon="Check" :disabled="!selectedItemId" @click="doFulfill">Onayla & Zimmetle</Button>
       </template>
     </ActionModal>
+    </template>
   </main>
 </template>

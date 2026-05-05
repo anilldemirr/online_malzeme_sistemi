@@ -19,6 +19,7 @@ class TransactionService:
         hedef_uye_id: int,
         equipment_item_id: int,
     ) -> Transaction:
+        """Create a direct assignment request for the member to accept/reject."""
         equipment_item = await TransactionService._get_equipment_item_or_404(
             db_session, equipment_item_id
         )
@@ -28,8 +29,6 @@ class TransactionService:
                 detail="Secilen malzeme depoda degil.",
             )
 
-        previous_item_state = TransactionService._equipment_item_state(equipment_item)
-
         transaction = Transaction(
             requested_model_id=equipment_item.model_id,
             assigned_item_id=equipment_item.id,
@@ -37,9 +36,8 @@ class TransactionService:
             hedef_uye_id=hedef_uye_id,
             onaylayan_malzemeci_id=manager_id,
             islem_turu=TransactionType.DOGRUDAN_ZIMMET,
-            islem_durumu=TransactionStatus.ONAYLANDI,
+            islem_durumu=TransactionStatus.BEKLEMEDE,
         )
-        equipment_item.durum = EquipmentItemStatus.KULLANIMDA
 
         db_session.add(transaction)
         await db_session.flush()
@@ -49,18 +47,110 @@ class TransactionService:
             entity_type="Transaction",
             entity_id=transaction.id,
             user_id=manager_id,
-            action="dogrudan_zimmet_olusturuldu",
+            action="dogrudan_zimmet_talebi_olusturuldu",
             previous_state=None,
+            new_state=TransactionService._transaction_state(transaction),
+        )
+        return transaction
+
+    @staticmethod
+    async def dogrudan_zimmet_onayla(
+        db_session: AsyncSession,
+        *,
+        transaction_id: int,
+        alici_uye_id: int,
+    ) -> Transaction:
+        """Accept a direct equipment assignment."""
+        transaction = await TransactionService._get_transaction_or_404(db_session, transaction_id)
+        if transaction.islem_turu != TransactionType.DOGRUDAN_ZIMMET:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bu islem bir dogrudan zimmet talebi degil.",
+            )
+        if transaction.hedef_uye_id != alici_uye_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Zimmet talebini sadece hedef uye onaylayabilir.",
+            )
+        if transaction.islem_durumu != TransactionStatus.BEKLEMEDE:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Zimmet talebi onay asamasinda degil.",
+            )
+
+        if transaction.assigned_item_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Zimmet talebinde malzeme bilgisi eksik.",
+            )
+        equipment_item = await TransactionService._get_equipment_item_or_404(
+            db_session, transaction.assigned_item_id
+        )
+
+        previous_transaction_state = TransactionService._transaction_state(transaction)
+        previous_item_state = TransactionService._equipment_item_state(equipment_item)
+
+        transaction.islem_durumu = TransactionStatus.ONAYLANDI
+        equipment_item.durum = EquipmentItemStatus.KULLANIMDA
+        await db_session.flush()
+
+        await audit_service.log_action(
+            db_session,
+            entity_type="Transaction",
+            entity_id=transaction.id,
+            user_id=alici_uye_id,
+            action="dogrudan_zimmet_onaylandi",
+            previous_state=previous_transaction_state,
             new_state=TransactionService._transaction_state(transaction),
         )
         await audit_service.log_action(
             db_session,
             entity_type="EquipmentItem",
             entity_id=equipment_item.id,
-            user_id=manager_id,
-            action="zimmetlendi_durum_guncellendi",
+            user_id=alici_uye_id,
+            action="dogrudan_zimmet_sonrasi_kullanimda",
             previous_state=previous_item_state,
             new_state=TransactionService._equipment_item_state(equipment_item),
+        )
+        return transaction
+
+    @staticmethod
+    async def dogrudan_zimmet_reddet(
+        db_session: AsyncSession,
+        *,
+        transaction_id: int,
+        alici_uye_id: int,
+    ) -> Transaction:
+        """Reject a direct equipment assignment."""
+        transaction = await TransactionService._get_transaction_or_404(db_session, transaction_id)
+        if transaction.islem_turu != TransactionType.DOGRUDAN_ZIMMET:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bu islem bir dogrudan zimmet talebi degil.",
+            )
+        if transaction.hedef_uye_id != alici_uye_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Zimmet talebini sadece hedef uye reddedebilir.",
+            )
+        if transaction.islem_durumu != TransactionStatus.BEKLEMEDE:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Zimmet talebi onay asamasinda degil.",
+            )
+
+        previous_state = TransactionService._transaction_state(transaction)
+        transaction.islem_durumu = TransactionStatus.REDDEDILDI
+        await db_session.flush()
+
+        await audit_service.log_action(
+            db_session,
+            entity_type="Transaction",
+            entity_id=transaction.id,
+            user_id=alici_uye_id,
+            action="dogrudan_zimmet_reddedildi",
+            previous_state=previous_state,
+            new_state=TransactionService._transaction_state(transaction),
         )
         return transaction
 

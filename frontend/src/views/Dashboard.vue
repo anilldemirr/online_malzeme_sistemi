@@ -15,14 +15,14 @@ const myItems = computed(() => store.myItems)
 const myPending = computed(() => store.myPendingRequests)
 
 const incomingTransfers = computed(() =>
-  store.transactions.filter(
-    t => t.tip === 'devir' && t.durum === 'beklemede' && t.hedef_uye_id === store.currentUserId && !t.b_onayli
+  (store.transactions || []).filter(
+    t => t.islem_turu === 'devir' && t.islem_durumu === 'alici_onayi_bekliyor' && t.hedef_uye_id === store.currentUserId
   )
 )
 
 const outgoingTransfers = computed(() =>
-  store.transactions.filter(
-    t => t.tip === 'devir' && t.durum === 'beklemede' && t.talep_eden_id === store.currentUserId
+  (store.transactions || []).filter(
+    t => t.islem_turu === 'devir' && (t.islem_durumu === 'alici_onayi_bekliyor' || t.islem_durumu === 'malzemeci_onayi_bekliyor') && t.talep_eden_id === store.currentUserId
   )
 )
 
@@ -127,8 +127,8 @@ function navigate(name) { router.push({ name }) }
           <li v-for="t in myPending" :key="t.id" class="flex items-start gap-3 p-3 rounded-alpine border border-amber-200/60 bg-amber-50/40 dark:bg-amber-500/5 dark:border-amber-500/20">
             <AppIcon name="Clock" :size="16" class="text-amber-600 dark:text-amber-400 mt-0.5" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ store.getModel(t.model_id)?.model_adi }}</div>
-              <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{{ formatRelative(t.created) }} talep edildi</div>
+              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ store.getModel(t.requested_model_id)?.model_adi }}</div>
+              <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{{ formatRelative(t.tarih) }} talep edildi</div>
             </div>
           </li>
         </ul>
@@ -151,10 +151,35 @@ function navigate(name) { router.push({ name }) }
             <AppIcon name="ArrowRight" :size="16" class="text-slate-400" />
             <Avatar :user="store.currentUser" :size="36" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ store.getModel(t.model_id)?.model_adi }}</div>
+              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ store.getModel(t.requested_model_id)?.model_adi }}</div>
               <div class="text-xs text-slate-500 dark:text-slate-400 font-mono">{{ store.getItem(t.assigned_item_id)?.demirbas_no }} · {{ store.getUser(t.talep_eden_id)?.ad }}</div>
             </div>
-            <Button size="sm" icon="Check" @click="store.confirmTransferReceipt(t.id)">Teslim Aldım</Button>
+          </li>
+        </ul>
+      </Card>
+
+      <!-- Incoming assignments alert (Technical Equipment) -->
+      <Card v-if="store.incomingAssignments.length > 0" class="lg:col-span-3 p-5 anim-slide border-amber-200 dark:border-amber-500/30">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-8 h-8 rounded-alpine bg-amber-50 dark:bg-amber-500/15 text-amber-600 dark:text-amber-300 flex items-center justify-center pulse-ring">
+            <AppIcon name="Zap" :size="16" />
+          </div>
+          <div class="flex-1">
+            <h2 class="text-base font-semibold text-slate-900 dark:text-slate-100">Atanan Teknik Malzemeleri Onaylar</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Yöneticinin size atadığı malzemeleri kabul veya red etmeniz bekleniyor</p>
+          </div>
+        </div>
+        <ul class="space-y-2">
+          <li v-for="t in store.incomingAssignments" :key="t.id" class="flex items-center gap-3 p-3 rounded-alpine bg-slate-50 dark:bg-slate-800/40">
+            <div class="w-8 h-8 rounded-alpine bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+              <AppIcon :name="store.getModel(t.requested_model_id)?.icon || 'Box'" :size="14" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{ store.getModel(t.requested_model_id)?.model_adi }}</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 font-mono">{{ store.getItem(t.assigned_item_id)?.demirbas_no }}</div>
+            </div>
+            <Button size="sm" variant="outline" @click="store.rejectEquipmentAssignment(t.id)">Reddet</Button>
+            <Button size="sm" icon="Check" @click="store.acceptEquipmentAssignment(t.id)">Kabul</Button>
           </li>
         </ul>
       </Card>

@@ -1,16 +1,24 @@
 <script setup>
+import { onMounted } from 'vue'
+import { useInventoryStore } from './stores/inventory'
 import Navbar from './components/Navbar.vue'
 import ToastStack from './components/ui/ToastStack.vue'
 import AppIcon from './components/AppIcon.vue'
+
+const store = useInventoryStore()
+
+onMounted(() => {
+  store.initializeApp()
+})
 </script>
 
 <template>
   <div class="min-h-screen flex flex-col bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-50 antialiased">
     <Navbar />
     <div class="flex-1">
-      <RouterView v-slot="{ Component }">
+      <RouterView v-slot="{ Component, route }">
         <Transition name="page" mode="out-in">
-          <component :is="Component" />
+          <component :is="Component" :key="route.name" />
         </Transition>
       </RouterView>
     </div>
